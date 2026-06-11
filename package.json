@@ -1,0 +1,46 @@
+{
+  "name": "pi-autonomy-profiles",
+  "version": "0.1.0",
+  "description": "Auto Mode commands and guardrails for the pi-permission-system Pi package",
+  "type": "module",
+  "main": "./index.ts",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "auto-mode",
+    "autonomy",
+    "permissions"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "index.ts",
+    "README.md",
+    "LICENSE",
+    "package.json",
+    "tsconfig.json"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.79.0",
+    "@types/node": "^24.12.4",
+    "typescript": "^6.0.2"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "prepack": "tsc --noEmit"
+  }
+}

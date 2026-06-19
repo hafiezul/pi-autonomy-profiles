@@ -112,7 +112,6 @@ function defaultAutoMode(): AutoModeRules {
 function defaultConfig(): AutonomyConfig {
 	return {
 		$schema: SCHEMA,
-		mode: "default",
 		permissions: defaultPermissions(),
 		autoMode: defaultAutoMode(),
 	};

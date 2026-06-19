@@ -1,6 +1,6 @@
 {
   "name": "pi-autonomy-profiles",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Standalone Auto Mode commands, permission modes, and guardrails for Pi",
   "type": "module",
   "main": "./index.ts",

@@ -422,7 +422,7 @@ function formatStatus(status: AutoModeStatus): string {
 		lines.push("Issues:", ...status.issues.map((issue) => `- ${issue}`));
 	}
 	lines.push(
-		"Standalone extension: no pi-permission-system dependency is required. Deny/ask/allow rules are evaluated by this package before each tool call.",
+		"Standalone extension: deny/ask/allow rules are evaluated by this package before each tool call.",
 	);
 	return lines.join("\n");
 }

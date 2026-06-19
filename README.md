@@ -26,7 +26,7 @@ pi install npm:pi-autonomy-profiles
 
 ## What it does
 
-- Runs without `@gotgenes/pi-permission-system`
+- Runs as a standalone extension
 - Implements its own deny → ask → allow checks before each tool call
 - Prompts from the extension UI for manual approval modes
 - Stores session-scoped approvals in memory

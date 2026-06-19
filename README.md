@@ -57,7 +57,7 @@ Example:
 
 ```jsonc
 {
-  "$schema": "https://raw.githubusercontent.com/hj88956/pi-autonomy-profiles/main/schemas/autonomy.schema.json",
+  "$schema": "https://raw.githubusercontent.com/hafiezul/pi-autonomy-profiles/main/schemas/autonomy.schema.json",
   "mode": "default",
   "permissions": {
     "deny": [

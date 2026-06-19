@@ -1,7 +1,7 @@
 {
   "name": "pi-autonomy-profiles",
   "version": "0.1.0",
-  "description": "Auto Mode commands and guardrails for the pi-permission-system Pi package",
+  "description": "Standalone Auto Mode commands, permission modes, and guardrails for Pi",
   "type": "module",
   "main": "./index.ts",
   "license": "MIT",
@@ -14,7 +14,8 @@
     "pi-extension",
     "auto-mode",
     "autonomy",
-    "permissions"
+    "permissions",
+    "standalone"
   ],
   "pi": {
     "extensions": [
@@ -29,7 +30,8 @@
     "README.md",
     "LICENSE",
     "package.json",
-    "tsconfig.json"
+    "tsconfig.json",
+    "schemas/autonomy.schema.json"
   ],
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"

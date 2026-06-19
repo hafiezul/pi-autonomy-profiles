@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/hj88956/pi-autonomy-profiles/main/schemas/autonomy.schema.json",
+  "title": "pi-autonomy-profiles configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "mode": {
+      "type": "string",
+      "enum": ["default", "acceptEdits", "plan", "auto", "dontAsk"]
+    },
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allow": { "$ref": "#/$defs/stringArray" },
+        "ask": { "$ref": "#/$defs/stringArray" },
+        "deny": { "$ref": "#/$defs/stringArray" },
+        "additionalDirectories": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "autoMode": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "trustedDomains": { "$ref": "#/$defs/stringArray" },
+        "trustedPaths": { "$ref": "#/$defs/stringArray" },
+        "hardDenyCommands": { "$ref": "#/$defs/stringArray" },
+        "softDenyCommands": { "$ref": "#/$defs/stringArray" },
+        "allowCommands": { "$ref": "#/$defs/stringArray" }
+      }
+    }
+  },
+  "$defs": {
+    "stringArray": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "default": []
+    }
+  }
+}

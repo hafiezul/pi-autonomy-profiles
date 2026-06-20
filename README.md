@@ -1,6 +1,6 @@
 # pi-autonomy-profiles
 
-Standalone permission modes and Auto Mode guardrails for Pi, inspired by Claude Code.
+Standalone Auto Mode and manual approval guardrails for Pi, inspired by Claude Code.
 
 This package is distributed as a [Pi package](https://pi.dev/packages). It ships the TypeScript extension entrypoint directly; Pi loads package extensions with its TypeScript runtime, so there is no build output to publish.
 
@@ -13,16 +13,9 @@ pi install npm:pi-autonomy-profiles
 ## Commands
 
 - `/autonomy auto` — enable standalone Auto Mode
-- `/autonomy manual` — default/manual approvals
-- `/autonomy accept-edits` — auto-approve file edits and common filesystem commands in scope
-- `/autonomy plan` — explore/read without source edits
-- `/autonomy dont-ask` — deny actions that are not read-only or explicitly allowed
-- `/autonomy toggle` — toggle default ↔ auto
+- `/autonomy manual` — use manual approvals
 - `/autonomy status` — show effective status and config paths
-- `/autonomy path` — show the global config path
 - `/autonomy defaults` — print a starter config
-
-`/auto-mode` is also registered as an alias.
 
 ## What it does
 
@@ -31,9 +24,9 @@ pi install npm:pi-autonomy-profiles
 - Prompts from the extension UI for manual approval modes
 - Stores session-scoped approvals in memory
 - Blocks protected path writes such as `.git`, `.claude`, `.pi`, shell startup files, package manager config, and MCP config
-- Mimics Claude Code-style modes: `default`, `acceptEdits`, `plan`, `auto`, and `dontAsk`
+- Provides a simple Auto Mode/manual command surface while still supporting advanced config modes
 - Adds deterministic Auto Mode guardrails for obvious risky bash operations: `curl | bash`, `sudo`, recursive force delete, force/main pushes, infra mutations, production deploys, external POST/upload, and cloud/IAM destructive commands
-- Pauses Auto Mode after repeated guardrail denials, falling back to manual/default prompts until `/autonomy auto` is run again
+- Pauses Auto Mode after repeated guardrail denials, falling back to manual prompts until `/autonomy auto` is run again
 
 This is a local deterministic approximation, not Claude Code’s hosted classifier. It cannot infer natural-language organization rules as deeply as Claude Code Auto Mode, but it is installable as a single standalone Pi extension.
 
@@ -67,20 +60,11 @@ Example:
       "Edit(.env)",
       "Write(.env)"
     ],
-    "ask": [],
-    "allow": [
-      "Bash(npm test*)",
-      "Bash(git status)",
-      "Read(*)"
-    ],
-    "additionalDirectories": []
+    "allow": ["Read(*)"]
   },
   "autoMode": {
     "trustedDomains": ["api.internal.example.com", "*.corp.example.com"],
-    "trustedPaths": [],
-    "hardDenyCommands": [],
-    "softDenyCommands": [],
-    "allowCommands": []
+    "trustedPaths": []
   }
 }
 ```
@@ -93,6 +77,8 @@ Permission rule syntax is intentionally Claude-like:
 - bare tool names such as `bash`, `edit`, or `*` match whole tools
 
 Rule precedence is deny, then ask, then allow. Built-in protected-write and Auto Mode hard guardrails still block even if an allow rule is present.
+
+The command UI intentionally focuses on `auto` and `manual`. Advanced config-only modes remain supported for existing configs and power users: `acceptEdits`, `plan`, and `dontAsk`.
 
 ## Local development
 

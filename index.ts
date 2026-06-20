@@ -402,12 +402,13 @@ function readStatus(cwd: string): AutoModeStatus {
 }
 
 function modeLabel(mode: PermissionMode | undefined): string {
-	return mode ?? "unset";
+	if (!mode) return "unset";
+	return mode === "default" ? "manual" : mode;
 }
 
 function formatStatus(status: AutoModeStatus): string {
 	const lines = [
-		`Mode: ${status.effectiveMode}${status.autoPaused ? " (auto paused after repeated denials)" : ""}`,
+		`Mode: ${modeLabel(status.effectiveMode)}${status.autoPaused ? " (auto paused after repeated denials)" : ""}`,
 		`Global mode: ${modeLabel(status.globalMode)}${status.globalExists ? "" : " (config missing)"}`,
 		`Global config: ${status.globalPath}`,
 		`Project mode: ${modeLabel(status.projectMode)}${status.projectExists ? "" : " (config missing)"}`,
@@ -459,10 +460,7 @@ function parseAction(raw: string): string {
 	return raw.trim().split(/\s+/).filter(Boolean)[0]?.toLowerCase() ?? "";
 }
 
-function actionToMode(
-	action: string,
-	current: PermissionMode,
-): PermissionMode | undefined {
+function actionToMode(action: string): PermissionMode | undefined {
 	switch (action.replace(/[\s_-]+/g, "")) {
 		case "auto":
 		case "on":
@@ -476,43 +474,24 @@ function actionToMode(
 		case "ask":
 		case "default":
 			return "default";
-		case "acceptedits":
-		case "edits":
-			return "acceptEdits";
-		case "plan":
-			return "plan";
-		case "dontask":
-		case "locked":
-			return "dontAsk";
-		case "toggle":
-			return current === "auto" ? "default" : "auto";
 		default:
 			return undefined;
 	}
 }
 
 const helpText = `Usage:
-  /autonomy auto          Enable standalone Auto Mode
-  /autonomy manual        Use default/manual approvals
-  /autonomy accept-edits  Auto-approve edits and common file commands in scope
-  /autonomy plan          Read/explore without source edits
-  /autonomy dont-ask      Deny anything that is not pre-approved/read-only
-  /autonomy toggle        Toggle default <-> auto
-  /autonomy status        Show effective status and config paths
-  /autonomy path          Show the global config path
-  /autonomy defaults      Show a starter standalone config
+  /autonomy auto      Enable standalone Auto Mode
+  /autonomy manual    Use manual approvals
+  /autonomy status    Show effective status and config paths
+  /autonomy defaults  Show a starter standalone config
 
-Aliases: /auto-mode
+This package is standalone. It provides simple Auto Mode/manual controls backed by deterministic local checks: deny/ask/allow rules, protected paths, in-cwd edit scope, read-only bash detection, Auto Mode guardrails, and repeated-denial fallback. It does not use Claude Code's hosted classifier.`;
 
-This package is standalone. It mimics Claude Code permission modes with deterministic local checks: deny/ask/allow rules, protected paths, in-cwd edit scope, read-only bash detection, Auto Mode guardrails, and repeated-denial fallback. It does not use Claude Code's hosted classifier.`;
-
-function starterConfig(): AutonomyConfig {
+function starterConfig(): JsonObject {
 	return {
 		$schema: SCHEMA,
 		mode: "default",
 		permissions: {
-			allow: [],
-			ask: [],
 			deny: [
 				"Bash(curl * | *sh*)",
 				"Bash(wget * | *sh*)",
@@ -520,14 +499,11 @@ function starterConfig(): AutonomyConfig {
 				"Edit(.env)",
 				"Write(.env)",
 			],
-			additionalDirectories: [],
+			allow: ["Read(*)"],
 		},
 		autoMode: {
 			trustedDomains: [],
 			trustedPaths: [],
-			hardDenyCommands: [],
-			softDenyCommands: [],
-			allowCommands: [],
 		},
 	};
 }
@@ -537,17 +513,9 @@ async function handleAutonomyCommand(
 	ctx: ExtensionCommandContext,
 ): Promise<void> {
 	let action = parseAction(args);
-	const initialStatus = readStatus(ctx.cwd);
 
 	if (!action && ctx.hasUI) {
-		const choice = await ctx.ui.select("Permission mode", [
-			initialStatus.effectiveMode === "auto" ? "manual" : "auto",
-			"accept-edits",
-			"plan",
-			"dont-ask",
-			"status",
-			"path",
-		]);
+		const choice = await ctx.ui.select("Permission mode", ["auto", "manual"]);
 		if (!choice) return;
 		action = parseAction(choice);
 	}
@@ -562,17 +530,12 @@ async function handleAutonomyCommand(
 		return;
 	}
 
-	if (action === "path") {
-		ctx.ui.notify(globalConfigPath(), "info");
-		return;
-	}
-
 	if (action === "defaults") {
 		ctx.ui.notify(JSON.stringify(starterConfig(), null, 2), "info");
 		return;
 	}
 
-	const nextMode = actionToMode(action, initialStatus.effectiveMode);
+	const nextMode = actionToMode(action);
 	if (!nextMode) {
 		ctx.ui.notify(helpText, "warning");
 		return;
@@ -587,7 +550,7 @@ async function handleAutonomyCommand(
 
 	ctx.ui.notify(
 		[
-			`Set permission mode to ${nextMode}.`,
+			`Set permission mode to ${modeLabel(nextMode)}.`,
 			result.created ? `Created ${result.path}` : `Updated ${result.path}`,
 			"Reloading Pi resources...",
 		].join("\n"),
@@ -1327,44 +1290,19 @@ function recordDecision(
 
 function registerCommand(pi: ExtensionAPI, name: string): void {
 	pi.registerCommand(name, {
-		description: "Switch standalone permission modes, including Auto Mode",
+		description: "Switch between Auto Mode and manual approvals",
 		getArgumentCompletions: (prefix: string) => {
 			const items = [
 				{ value: "auto", label: "auto", description: "Enable Auto Mode" },
 				{
 					value: "manual",
 					label: "manual",
-					description: "Default/manual approvals",
-				},
-				{
-					value: "accept-edits",
-					label: "accept-edits",
-					description: "Auto-approve scoped edits",
-				},
-				{
-					value: "plan",
-					label: "plan",
-					description: "Read/explore without edits",
-				},
-				{
-					value: "dont-ask",
-					label: "dont-ask",
-					description: "Deny non-approved actions",
-				},
-				{
-					value: "toggle",
-					label: "toggle",
-					description: "Toggle default <-> auto",
+					description: "Use manual approvals",
 				},
 				{
 					value: "status",
 					label: "status",
 					description: "Show effective status",
-				},
-				{
-					value: "path",
-					label: "path",
-					description: "Show global config path",
 				},
 				{
 					value: "defaults",
@@ -1383,7 +1321,6 @@ function registerCommand(pi: ExtensionAPI, name: string): void {
 
 export default function autoMode(pi: ExtensionAPI) {
 	registerCommand(pi, "autonomy");
-	registerCommand(pi, "auto-mode");
 
 	pi.on("tool_call", async (event: ToolCallEvent, ctx: ExtensionContext) => {
 		const { config } = readEffectiveConfig(ctx.cwd);

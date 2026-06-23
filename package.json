@@ -35,6 +35,7 @@
   },
   "files": [
     "index.ts",
+    "src/**/*.ts",
     "README.md",
     "LICENSE",
     "package.json",
@@ -51,6 +52,7 @@
   },
   "scripts": {
     "check": "tsc --noEmit",
-    "prepack": "tsc --noEmit"
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "prepack": "npm run check && npm test"
   }
 }

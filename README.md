@@ -44,7 +44,7 @@ Project config:
 <project>/.pi/extensions/pi-autonomy-profiles/config.json
 ```
 
-Project config can tighten rules or choose non-auto modes, but `mode: "auto"` is ignored from project-local config so a repository cannot grant itself Auto Mode.
+Project config is honored only for trusted projects. It can tighten rules or choose a more restrictive non-auto mode, but it cannot grant new capabilities: project-local `allow`, `additionalDirectories`, `trustedDomains`, `trustedPaths`, `allowCommands`, and `mode: "auto"` are ignored so a repository cannot grant itself autonomy.
 
 Example:
 
@@ -76,7 +76,7 @@ Permission rule syntax is intentionally Claude-like:
 - `Edit(pattern)` matches `edit` and `write` path inputs
 - bare tool names such as `bash`, `edit`, or `*` match whole tools
 
-Rule precedence is deny, then ask, then allow. Built-in protected-write and Auto Mode hard guardrails still block even if an allow rule is present.
+Rule precedence is non-overridable built-in blockers first, then deny, ask, out-of-scope write checks, allow, and finally mode defaults. Built-in protected-write and Auto Mode guardrails still block even if an allow rule is present.
 
 The command UI intentionally focuses on `auto` and `manual`. Advanced config-only modes remain supported for existing configs and power users: `acceptEdits`, `plan`, and `dontAsk`.
 

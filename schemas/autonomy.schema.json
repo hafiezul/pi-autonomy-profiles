@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/hj88956/pi-autonomy-profiles/main/schemas/autonomy.schema.json",
+  "$id": "https://raw.githubusercontent.com/hafiezul/pi-autonomy-profiles/main/schemas/autonomy.schema.json",
   "title": "pi-autonomy-profiles configuration",
   "type": "object",
   "additionalProperties": false,

@@ -150,14 +150,24 @@ export function isPathInAllowedRoots(
 	return allowedRoots(cwd, config).some((root) => isWithin(root, absPath));
 }
 
+const GLOB_REGEX_CACHE_MAX = 1024;
+
+const globRegexCache = new Map<string, RegExp>();
+
 export function globToRegExp(pattern: string): RegExp {
+	const cached = globRegexCache.get(pattern);
+	if (cached) return cached;
+
 	const normalized = pattern.replace(/\\/g, "/");
 	let source = "^";
 	for (const char of normalized) {
 		source += char === "*" ? ".*" : char.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
 	}
 	source += "$";
-	return new RegExp(source, "i");
+	const regex = new RegExp(source, "i");
+	if (globRegexCache.size >= GLOB_REGEX_CACHE_MAX) globRegexCache.clear();
+	globRegexCache.set(pattern, regex);
+	return regex;
 }
 
 export function matchesGlob(pattern: string, value: string): boolean {

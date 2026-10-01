@@ -22,7 +22,7 @@ pi install npm:pi-autonomy-profiles
 - Runs as a standalone extension
 - Implements its own deny → ask → allow checks before each tool call
 - Prompts from the extension UI for manual approval modes
-- Stores session-scoped approvals in memory
+- Stores session-scoped approvals in memory, bounded and cleared when a new session starts
 - Blocks protected path writes such as `.git`, `.claude`, `.pi`, shell startup files, package manager config, and MCP config
 - Provides a simple Auto Mode/manual command surface while still supporting advanced config modes
 - Adds deterministic Auto Mode guardrails for obvious risky bash operations: `curl | bash`, `sudo`, recursive force delete, force/main pushes, infra mutations, production deploys, external POST/upload, and cloud/IAM destructive commands

@@ -14,6 +14,7 @@ import { evaluateToolCall, permissionRuleParts } from "./src/policy.ts";
 import { globToRegExp, matchesGlob, protectedPathReason } from "./src/paths.ts";
 import {
 	effectiveRuntimeMode,
+	clearSessionApprovals,
 	promptForDecision,
 	recordDecision,
 } from "./src/runtime.ts";
@@ -21,6 +22,10 @@ import { isProjectTrustedContext } from "./src/trust.ts";
 
 export default function autoMode(pi: ExtensionAPI) {
 	registerCommand(pi, "autonomy");
+
+	pi.on("session_start", () => {
+		clearSessionApprovals();
+	});
 
 	pi.on("tool_call", async (event: ToolCallEvent, ctx: ExtensionContext) => {
 		const { config } = readEffectiveConfig(ctx.cwd, {

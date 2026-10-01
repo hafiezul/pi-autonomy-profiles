@@ -1,6 +1,8 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Decision, PermissionMode, RuntimeState } from "./types.ts";
 
+const MAX_SESSION_APPROVALS = 256;
+
 const state: RuntimeState = {
 	sessionApprovals: new Set(),
 	autoDenialsConsecutive: 0,
@@ -26,6 +28,20 @@ export function resetAutoModeState(): void {
 	state.autoDenialsTotal = 0;
 }
 
+export function clearSessionApprovals(): void {
+	state.sessionApprovals.clear();
+}
+
+export function rememberApproval(key: string | undefined): void {
+	if (!key) return;
+	if (state.sessionApprovals.has(key)) return;
+	if (state.sessionApprovals.size >= MAX_SESSION_APPROVALS) {
+		const oldest = state.sessionApprovals.values().next();
+		if (!oldest.done) state.sessionApprovals.delete(oldest.value);
+	}
+	state.sessionApprovals.add(key);
+}
+
 export async function promptForDecision(
 	decision: Decision,
 	ctx: ExtensionContext,
@@ -42,7 +58,7 @@ export async function promptForDecision(
 	);
 
 	if (choice === "Allow for session" && decision.sessionKey) {
-		state.sessionApprovals.add(decision.sessionKey);
+		rememberApproval(decision.sessionKey);
 		return true;
 	}
 	return choice === "Allow once";

@@ -154,7 +154,7 @@ const GLOB_REGEX_CACHE_MAX = 1024;
 
 const globRegexCache = new Map<string, RegExp>();
 
-export function globToRegExp(pattern: string): RegExp {
+function globToRegExp(pattern: string): RegExp {
 	const cached = globRegexCache.get(pattern);
 	if (cached) return cached;
 

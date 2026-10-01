@@ -18,9 +18,9 @@ import type {
 	PermissionRules,
 } from "./types.ts";
 
-export type ConfigScope = "global" | "project";
+type ConfigScope = "global" | "project";
 
-export function defaultPermissions(): PermissionRules {
+function defaultPermissions(): PermissionRules {
 	return { allow: [], ask: [], deny: [], additionalDirectories: [] };
 }
 
@@ -55,7 +55,7 @@ export function projectConfigPath(cwd: string): string {
 }
 
 // Config files are JSONC. Strip comments conservatively while preserving strings.
-export function stripJsonComments(input: string): string {
+function stripJsonComments(input: string): string {
 	let output = "";
 	let i = 0;
 
@@ -106,7 +106,7 @@ export function stripJsonComments(input: string): string {
 	return output;
 }
 
-export function parseJsonObject(raw: string, path: string): JsonObject {
+function parseJsonObject(raw: string, path: string): JsonObject {
 	const parsed = JSON.parse(stripJsonComments(raw)) as unknown;
 	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
 		throw new Error(`Expected a JSON object in ${path}`);
@@ -230,7 +230,7 @@ function decodeMode(
 	return mode;
 }
 
-export function normalizeConfig(
+function normalizeConfig(
 	raw: JsonObject,
 	options?: { scope?: ConfigScope },
 ): ConfigReadResult {
@@ -365,7 +365,7 @@ export function normalizeConfig(
 	};
 }
 
-export async function readConfig(
+async function readConfig(
 	path: string,
 	options?: { scope?: ConfigScope },
 ): Promise<ConfigReadResult> {
@@ -387,7 +387,7 @@ export async function readConfig(
 	}
 }
 
-export function readConfigSync(
+function readConfigSync(
 	path: string,
 	options?: { scope?: ConfigScope },
 ): ConfigReadResult {
@@ -427,7 +427,7 @@ function readProjectConfigSync(
 	return readConfigSync(path, { scope: "project" });
 }
 
-export function moreRestrictiveMode(
+function moreRestrictiveMode(
 	base: PermissionMode | undefined,
 	override: PermissionMode | undefined,
 ): PermissionMode {

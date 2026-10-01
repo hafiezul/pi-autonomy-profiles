@@ -22,7 +22,7 @@ import {
 import { editLikeTools, readLikeTools } from "./tools.ts";
 import type { AutonomyConfig, Decision, PermissionMode } from "./types.ts";
 
-export function permissionRuleParts(
+function permissionRuleParts(
 	rule: string,
 ): { tool: string; specifier?: string } | undefined {
 	const trimmed = rule.trim();

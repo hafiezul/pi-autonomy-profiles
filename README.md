@@ -85,17 +85,22 @@ The command UI intentionally focuses on `auto` and `manual`. Advanced config-onl
 ```bash
 npm install
 npm run check
+npm test
 pi install /path/to/pi-autonomy-profiles
 ```
 
-## Release checklist
+## Release process
+
+`prepack` runs type checking and tests before every `npm pack`, so broken state cannot be packaged.
+
+CI (`.github/workflows/ci.yml`) runs `npm run check` and `npm test` on every push to main and every pull request, on Node 22 and Node 24.
+
+Publishing (`.github/workflows/release.yml`) runs the same checks and then publishes to npm with provenance when a `v*` tag is pushed:
 
 ```bash
-npm install
-npm run check
-npm pack --dry-run
-npm publish --dry-run
-npm publish
+npm version patch
+git push origin main
+git push origin vX.Y.Z
 ```
 
-The package has a `prepack` check, so `npm pack` and `npm publish` run TypeScript validation before creating the tarball.
+`NPM_TOKEN` must be set as a repository secret for the publish step.

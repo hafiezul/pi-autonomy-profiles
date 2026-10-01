@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import type {
 	ExtensionAPI,
@@ -182,4 +185,71 @@ test("autoMode registration clears session approvals on session_start", async ()
 	await handler({ type: "session_start", reason: "new" }, ctx);
 	await promptForDecision(askDecision("pre-dispose"), ctx);
 	assert.equal(prompts(), 2, "approval from the previous session is gone");
+});
+
+type ToolCallHandler = (
+	event: unknown,
+	ctx: ExtensionContext,
+) => Promise<unknown>;
+
+async function toolCallHandler(
+	fixture: { cwd: string; mode: string },
+): Promise<ToolCallHandler> {
+	const handlers = new Map<string, (event: unknown, ctx: unknown) => unknown>();
+	const pi = {
+		registerCommand: () => {},
+		on: (name: string, handler: (event: unknown, ctx: unknown) => unknown) => {
+			handlers.set(name, handler);
+		},
+	} as unknown as ExtensionAPI;
+
+	previousGlobalAgentDir = process.env.PI_CODING_AGENT_DIR;
+	process.env.PI_CODING_AGENT_DIR = fixture.cwd;
+	await mkdir(join(fixture.cwd, "extensions", EXTENSION_ID), {
+		recursive: true,
+	});
+	await writeFile(
+		join(fixture.cwd, "extensions", EXTENSION_ID, "config.json"),
+		`${JSON.stringify({ mode: fixture.mode })}\n`,
+		"utf8",
+	);
+
+	autoMode(pi as ExtensionAPI);
+	return handlers.get("tool_call") as ToolCallHandler;
+}
+
+let previousGlobalAgentDir: string | undefined;
+const EXTENSION_ID = "pi-autonomy-profiles";
+
+test("autoMode tool_call wiring allows read-only, blocks guardrails, and pauses after three denials", async () => {
+	const tmp = await mkdtemp(join(tmpdir(), "pi-autonomy-wiring-"));
+	await mkdir(join(tmp, "repo"), { recursive: true });
+	try {
+		const handler = await toolCallHandler({ cwd: tmp, mode: "auto" });
+		const ctx = { cwd: join(tmp, "repo"), hasUI: false } as ExtensionContext;
+
+		assert.deepEqual(await handler({ toolName: "bash", input: { command: "ls" } }, ctx), undefined);
+		const guardrail = { toolName: "bash", input: { command: "rm -rf build" } };
+		const blocked = (await handler(guardrail, ctx)) as {
+			block: boolean;
+			reason: string;
+		};
+		assert.equal(blocked.block, true);
+		assert.match(blocked.reason, /recursive-force-delete/);
+
+		await handler(guardrail, ctx);
+		await handler(guardrail, ctx);
+		assert.equal(
+			isAutoPaused(),
+			true,
+			"three wired guardrail denials pause auto mode",
+		);
+	} finally {
+		if (previousGlobalAgentDir === undefined) {
+			delete process.env.PI_CODING_AGENT_DIR;
+		} else {
+			process.env.PI_CODING_AGENT_DIR = previousGlobalAgentDir;
+		}
+		await rm(tmp, { recursive: true, force: true });
+	}
 });

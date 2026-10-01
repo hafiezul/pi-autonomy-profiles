@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -483,7 +483,41 @@ export function readEffectiveConfig(
 	cwd: string,
 	options: { projectTrusted: boolean },
 ): EffectiveConfigReadResult {
-	const projectTrusted = options.projectTrusted;
+	const globalPath = globalConfigPath();
+	const projectPath = projectConfigPath(cwd);
+	const stamps = `${fileStamp(globalPath)}|${fileStamp(projectPath)}`;
+	const cacheKey = `${cwd}|${options.projectTrusted ? "trusted" : "untrusted"}`;
+	const entry = effectiveConfigCache.get(cacheKey);
+	if (entry && entry.stamps === stamps) return entry.result;
+
+	const result = computeEffectiveConfig(cwd, options.projectTrusted);
+	if (effectiveConfigCache.size >= CONFIG_CACHE_MAX_ENTRIES) {
+		effectiveConfigCache.clear();
+	}
+	effectiveConfigCache.set(cacheKey, { stamps, result });
+	return result;
+}
+
+const CONFIG_CACHE_MAX_ENTRIES = 64;
+
+const effectiveConfigCache = new Map<
+	string,
+	{ stamps: string; result: EffectiveConfigReadResult }
+>();
+
+function fileStamp(path: string): string {
+	try {
+		const stats = statSync(path, { bigint: true });
+		return `${stats.size}:${stats.mtimeNs}`;
+	} catch {
+		return "absent";
+	}
+}
+
+function computeEffectiveConfig(
+	cwd: string,
+	projectTrusted: boolean,
+): EffectiveConfigReadResult {
 	const global = readConfigSync(globalConfigPath(), { scope: "global" });
 	const project = readProjectConfigSync(cwd, projectTrusted);
 	const config = mergeConfig(global.config, project.config);

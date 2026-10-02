@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -18,9 +18,9 @@ import type {
 	PermissionRules,
 } from "./types.ts";
 
-export type ConfigScope = "global" | "project";
+type ConfigScope = "global" | "project";
 
-export function defaultPermissions(): PermissionRules {
+function defaultPermissions(): PermissionRules {
 	return { allow: [], ask: [], deny: [], additionalDirectories: [] };
 }
 
@@ -55,7 +55,7 @@ export function projectConfigPath(cwd: string): string {
 }
 
 // Config files are JSONC. Strip comments conservatively while preserving strings.
-export function stripJsonComments(input: string): string {
+function stripJsonComments(input: string): string {
 	let output = "";
 	let i = 0;
 
@@ -106,7 +106,7 @@ export function stripJsonComments(input: string): string {
 	return output;
 }
 
-export function parseJsonObject(raw: string, path: string): JsonObject {
+function parseJsonObject(raw: string, path: string): JsonObject {
 	const parsed = JSON.parse(stripJsonComments(raw)) as unknown;
 	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
 		throw new Error(`Expected a JSON object in ${path}`);
@@ -230,7 +230,7 @@ function decodeMode(
 	return mode;
 }
 
-export function normalizeConfig(
+function normalizeConfig(
 	raw: JsonObject,
 	options?: { scope?: ConfigScope },
 ): ConfigReadResult {
@@ -365,7 +365,7 @@ export function normalizeConfig(
 	};
 }
 
-export async function readConfig(
+async function readConfig(
 	path: string,
 	options?: { scope?: ConfigScope },
 ): Promise<ConfigReadResult> {
@@ -387,7 +387,7 @@ export async function readConfig(
 	}
 }
 
-export function readConfigSync(
+function readConfigSync(
 	path: string,
 	options?: { scope?: ConfigScope },
 ): ConfigReadResult {
@@ -427,7 +427,7 @@ function readProjectConfigSync(
 	return readConfigSync(path, { scope: "project" });
 }
 
-export function moreRestrictiveMode(
+function moreRestrictiveMode(
 	base: PermissionMode | undefined,
 	override: PermissionMode | undefined,
 ): PermissionMode {
@@ -483,7 +483,41 @@ export function readEffectiveConfig(
 	cwd: string,
 	options: { projectTrusted: boolean },
 ): EffectiveConfigReadResult {
-	const projectTrusted = options.projectTrusted;
+	const globalPath = globalConfigPath();
+	const projectPath = projectConfigPath(cwd);
+	const stamps = `${fileStamp(globalPath)}|${fileStamp(projectPath)}`;
+	const cacheKey = `${cwd}|${options.projectTrusted ? "trusted" : "untrusted"}`;
+	const entry = effectiveConfigCache.get(cacheKey);
+	if (entry && entry.stamps === stamps) return entry.result;
+
+	const result = computeEffectiveConfig(cwd, options.projectTrusted);
+	if (effectiveConfigCache.size >= CONFIG_CACHE_MAX_ENTRIES) {
+		effectiveConfigCache.clear();
+	}
+	effectiveConfigCache.set(cacheKey, { stamps, result });
+	return result;
+}
+
+const CONFIG_CACHE_MAX_ENTRIES = 64;
+
+const effectiveConfigCache = new Map<
+	string,
+	{ stamps: string; result: EffectiveConfigReadResult }
+>();
+
+function fileStamp(path: string): string {
+	try {
+		const stats = statSync(path, { bigint: true });
+		return `${stats.size}:${stats.mtimeNs}`;
+	} catch {
+		return "absent";
+	}
+}
+
+function computeEffectiveConfig(
+	cwd: string,
+	projectTrusted: boolean,
+): EffectiveConfigReadResult {
 	const global = readConfigSync(globalConfigPath(), { scope: "global" });
 	const project = readProjectConfigSync(cwd, projectTrusted);
 	const config = mergeConfig(global.config, project.config);

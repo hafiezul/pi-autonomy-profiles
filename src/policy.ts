@@ -2,6 +2,7 @@ import type {
 	ExtensionContext,
 	ToolCallEvent,
 } from "@earendil-works/pi-coding-agent";
+import { createHash } from "node:crypto";
 import { relative } from "node:path";
 import {
 	compactCommand,
@@ -21,7 +22,7 @@ import {
 import { editLikeTools, readLikeTools } from "./tools.ts";
 import type { AutonomyConfig, Decision, PermissionMode } from "./types.ts";
 
-export function permissionRuleParts(
+function permissionRuleParts(
 	rule: string,
 ): { tool: string; specifier?: string } | undefined {
 	const trimmed = rule.trim();
@@ -78,6 +79,11 @@ function ruleSpecifierMatches(
 	}
 
 	return matchesGlob(parsed.specifier, JSON.stringify(event.input));
+}
+
+function sessionKeyFor(event: ToolCallEvent): string {
+	const raw = `${event.toolName}:${JSON.stringify(event.input)}`;
+	return createHash("sha256").update(raw).digest("base64url");
 }
 
 function matchingRule(
@@ -154,7 +160,6 @@ function evaluateMode(
 	mode: PermissionMode,
 ): Decision {
 	const tool = event.toolName;
-	const sessionKey = `${tool}:${JSON.stringify(event.input)}`;
 
 	if (readLikeTools.has(tool)) return { action: "allow" };
 
@@ -164,7 +169,7 @@ function evaluateMode(
 			return {
 				action: "ask",
 				reason: "Bash command was missing or empty.",
-				sessionKey,
+				sessionKey: sessionKeyFor(event),
 			};
 		}
 		if (isReadOnlyBash(command)) return { action: "allow" };
@@ -188,7 +193,7 @@ function evaluateMode(
 		return {
 			action: "ask",
 			reason: `${mode} mode requires approval for Bash command: ${compactCommand(command)}`,
-			sessionKey,
+			sessionKey: sessionKeyFor(event),
 		};
 	}
 
@@ -209,7 +214,7 @@ function evaluateMode(
 		return {
 			action: "ask",
 			reason: "Default mode requires approval for file edits.",
-			sessionKey,
+			sessionKey: sessionKeyFor(event),
 		};
 	}
 
@@ -223,7 +228,7 @@ function evaluateMode(
 	return {
 		action: "ask",
 		reason: `${mode} mode requires approval for '${tool}'.`,
-		sessionKey,
+		sessionKey: sessionKeyFor(event),
 	};
 }
 

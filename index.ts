@@ -3,16 +3,11 @@ import type {
 	ExtensionContext,
 	ToolCallEvent,
 } from "@earendil-works/pi-coding-agent";
-import {
-	guardBash,
-	isCommonFilesystemCommandInScope,
-	isReadOnlyBash,
-} from "./src/bash.ts";
-import { actionToMode, registerCommand } from "./src/command.ts";
+import { registerCommand } from "./src/command.ts";
 import { readEffectiveConfig } from "./src/config.ts";
-import { evaluateToolCall, permissionRuleParts } from "./src/policy.ts";
-import { globToRegExp, matchesGlob, protectedPathReason } from "./src/paths.ts";
+import { evaluateToolCall } from "./src/policy.ts";
 import {
+	clearSessionApprovals,
 	effectiveRuntimeMode,
 	promptForDecision,
 	recordDecision,
@@ -22,12 +17,15 @@ import { isProjectTrustedContext } from "./src/trust.ts";
 export default function autoMode(pi: ExtensionAPI) {
 	registerCommand(pi, "autonomy");
 
+	pi.on("session_start", () => {
+		clearSessionApprovals();
+	});
+
 	pi.on("tool_call", async (event: ToolCallEvent, ctx: ExtensionContext) => {
 		const { config } = readEffectiveConfig(ctx.cwd, {
 			projectTrusted: isProjectTrustedContext(ctx),
 		});
-		const configuredMode = config.mode ?? "default";
-		const mode = effectiveRuntimeMode(configuredMode);
+		const mode = effectiveRuntimeMode(config.mode ?? "default");
 		const decision = evaluateToolCall(event, ctx, config, mode);
 
 		if (decision.action === "ask") {
@@ -42,15 +40,3 @@ export default function autoMode(pi: ExtensionAPI) {
 			: undefined;
 	});
 }
-
-export const __test = {
-	actionToMode,
-	evaluateToolCall,
-	globToRegExp,
-	guardBash,
-	isReadOnlyBash,
-	isCommonFilesystemCommandInScope,
-	matchesGlob,
-	permissionRuleParts,
-	protectedPathReason,
-};

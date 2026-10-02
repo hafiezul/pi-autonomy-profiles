@@ -45,13 +45,32 @@ export function compactCommand(command: string): string {
 	return command.trim().replace(/\s+/g, " ");
 }
 
+const READ_ONLY_COMMANDS = new Set([
+	"ls",
+	"cat",
+	"echo",
+	"pwd",
+	"head",
+	"tail",
+	"grep",
+	"rg",
+	"find",
+	"wc",
+	"which",
+	"diff",
+	"stat",
+	"du",
+	"cd",
+]);
+
+const EXEC_WRAPPER_COMMANDS = new Set(["timeout", "time", "nice", "nohup", "stdbuf"]);
+
 function stripEnvAndWrappers(tokens: string[]): string[] {
 	let remaining = [...tokens];
 	while (/^[A-Za-z_][A-Za-z0-9_]*=.*/.test(remaining[0] ?? "")) {
 		remaining = remaining.slice(1);
 	}
-	const wrappers = new Set(["timeout", "time", "nice", "nohup", "stdbuf"]);
-	while (wrappers.has(remaining[0] ?? "")) {
+	while (EXEC_WRAPPER_COMMANDS.has(remaining[0] ?? "")) {
 		remaining = remaining.slice(1);
 		while ((remaining[0] ?? "").startsWith("-")) remaining = remaining.slice(1);
 		if (/^\d/.test(remaining[0] ?? "")) remaining = remaining.slice(1);
@@ -82,23 +101,6 @@ function isReadOnlyGit(tokens: string[]): boolean {
 
 export function isReadOnlyBash(command: string): boolean {
 	if (/[<>]/.test(command) || /(^|\s)tee(\s|$)/.test(command)) return false;
-	const readonlyCommands = new Set([
-		"ls",
-		"cat",
-		"echo",
-		"pwd",
-		"head",
-		"tail",
-		"grep",
-		"rg",
-		"find",
-		"wc",
-		"which",
-		"diff",
-		"stat",
-		"du",
-		"cd",
-	]);
 
 	return splitCompoundCommand(command).every((part) => {
 		const tokens = stripEnvAndWrappers(shellSplit(part));
@@ -111,7 +113,7 @@ export function isReadOnlyBash(command: string): boolean {
 		) {
 			return false;
 		}
-		return readonlyCommands.has(program);
+		return READ_ONLY_COMMANDS.has(program);
 	});
 }
 
@@ -292,7 +294,7 @@ const bashGuardrails: BashGuardrail[] = [
 		test: (command, config) =>
 			hasExternalUrl(command) &&
 			!postsOnlyToTrustedDomains(command, config) &&
-			/\b(curl|wget|http)\b[\s\S]*\b(-X\s*POST|--request\s+POST|-d|--data|--data-raw|--upload-file|-F|--form)\b/i.test(
+			/\b(curl|wget|http)\b[\s\S]*(^|\s)(-X\s*POST|--request\s+POST|-d|--data|--data-raw|--upload-file|-F|--form)\b/i.test(
 				command,
 			),
 	},

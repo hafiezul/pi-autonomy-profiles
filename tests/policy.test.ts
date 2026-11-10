@@ -7,17 +7,14 @@ import type {
 	ExtensionContext,
 	ToolCallEvent,
 } from "@earendil-works/pi-coding-agent";
-import { ProjectTrustStore } from "@earendil-works/pi-coding-agent";
 import { SCHEMA } from "../src/constants.ts";
 import {
-	agentDir,
 	defaultConfig,
 	globalConfigPath,
 	projectConfigPath,
 	readEffectiveConfig,
 } from "../src/config.ts";
 import { evaluateToolCall } from "../src/policy.ts";
-import { isProjectTrustedContext } from "../src/trust.ts";
 import type { AutonomyConfig } from "../src/types.ts";
 
 async function writeJson(path: string, value: unknown): Promise<void> {
@@ -52,6 +49,27 @@ function mockContext(cwd: string): ExtensionContext {
 function bashEvent(command: string): ToolCallEvent {
 	return { toolName: "bash", input: { command } } as ToolCallEvent;
 }
+
+test("manual and dontAsk modes do not auto-approve shell execution or mutations", () => {
+	const config = defaultConfig();
+	const ctx = mockContext("/repo");
+	for (const command of [
+		"echo ok\nrm important.txt",
+		"echo $(touch marker)",
+		"git branch new-branch",
+		"git remote add origin https://example.com/repo",
+		"git diff --output=patch.txt",
+		"git diff --ext",
+		"find . -execdir touch marker +",
+		"rg --pre=sh pattern",
+	]) {
+		assert.equal(evaluateToolCall(bashEvent(command), ctx, config, "default").action, "ask", command);
+		assert.equal(evaluateToolCall(bashEvent(command), ctx, config, "dontAsk").action, "deny", command);
+	}
+	assert.equal(evaluateToolCall(
+		bashEvent("cp --target-directory=../outside source.txt"), ctx, config, "acceptEdits",
+	).action, "ask");
+});
 
 test("project config cannot grant capabilities", async () => {
 	await withWorkspace(async ({ cwd }) => {
@@ -204,18 +222,6 @@ test("invalid config fields are reported instead of silently erased", async () =
 		assert.ok(
 			issues.some((issue) => issue.includes("autoMode.trustedDomains[0]")),
 		);
-	});
-});
-
-test("trust helper falls back to the saved Pi project-trust store", async () => {
-	await withWorkspace(async ({ cwd }) => {
-		await writeJson(projectConfigPath(cwd), {
-			permissions: { deny: ["Bash(*)"] },
-		});
-
-		assert.equal(isProjectTrustedContext({ cwd }), false);
-		new ProjectTrustStore(agentDir()).set(cwd, true);
-		assert.equal(isProjectTrustedContext({ cwd }), true);
 	});
 });
 

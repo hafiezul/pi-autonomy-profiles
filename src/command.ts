@@ -6,7 +6,6 @@ import { SCHEMA } from "./constants.ts";
 import { modeLabel, writeGlobalMode } from "./config.ts";
 import { resetAutoModeState } from "./runtime.ts";
 import { formatStatus, readStatus } from "./status.ts";
-import { isProjectTrustedContext } from "./trust.ts";
 import type { JsonObject, PermissionMode } from "./types.ts";
 
 function parseAction(raw: string): string {
@@ -82,7 +81,7 @@ async function handleAutonomyCommand(
 		ctx.ui.notify(
 			formatStatus(
 				readStatus(ctx.cwd, {
-					projectTrusted: isProjectTrustedContext(ctx),
+					projectTrusted: ctx.isProjectTrusted(),
 				}),
 			),
 			"info",

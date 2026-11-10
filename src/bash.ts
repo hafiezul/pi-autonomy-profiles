@@ -1,10 +1,11 @@
-import type { AutonomyConfig } from "./types.ts";
+import { statSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
 import {
 	isPathInAllowedRoots,
 	matchesGlob,
 	protectedPathReason,
-	resolveToolPath,
 } from "./paths.ts";
+import type { AutonomyConfig } from "./types.ts";
 
 export function shellSplit(command: string): string[] {
 	const tokens: string[] = [];
@@ -30,7 +31,7 @@ export function shellSplit(command: string): string[] {
 			quote = undefined;
 			continue;
 		}
-		if (!quote && /\s/.test(char)) {
+		if (!quote && /[ \t]/.test(char)) {
 			if (current) tokens.push(current);
 			current = "";
 			continue;
@@ -63,59 +64,118 @@ const READ_ONLY_COMMANDS = new Set([
 	"cd",
 ]);
 
-const EXEC_WRAPPER_COMMANDS = new Set(["timeout", "time", "nice", "nohup", "stdbuf"]);
-
-function stripEnvAndWrappers(tokens: string[]): string[] {
-	let remaining = [...tokens];
-	while (/^[A-Za-z_][A-Za-z0-9_]*=.*/.test(remaining[0] ?? "")) {
-		remaining = remaining.slice(1);
+function stripWrappers(tokens: string[]): string[] {
+	let remaining = tokens;
+	// Only unwrap forms whose argument boundaries are unambiguous.
+	while (
+		remaining[0] === "timeout" &&
+		/^\d+(?:\.\d+)?[smhd]?$/.test(remaining[1] ?? "")
+	) {
+		remaining = remaining.slice(2);
 	}
-	while (EXEC_WRAPPER_COMMANDS.has(remaining[0] ?? "")) {
-		remaining = remaining.slice(1);
-		while ((remaining[0] ?? "").startsWith("-")) remaining = remaining.slice(1);
-		if (/^\d/.test(remaining[0] ?? "")) remaining = remaining.slice(1);
-	}
-	if (remaining[0] === "xargs") remaining = remaining.slice(1);
 	return remaining;
 }
 
-function splitCompoundCommand(command: string): string[] {
-	return command
-		.split(/\s*(?:&&|\|\||\||;)\s*/)
-		.map((part) => part.trim())
-		.filter(Boolean);
+// Recognize only static shell syntax. Anything requiring expansion needs approval.
+function splitCompoundCommand(command: string): string[] | undefined {
+	if (/[\r\n\0]/.test(command)) return undefined;
+	const parts: string[] = [];
+	let start = 0;
+	let quote: "'" | '"' | undefined;
+	for (let i = 0; i < command.length; i++) {
+		const char = command[i];
+		if (quote === "'") {
+			if (char === "'") quote = undefined;
+			continue;
+		}
+		if (char === "\\") {
+			if (i + 1 === command.length) return undefined;
+			// shellSplit only models double-quoted escapes for these characters.
+			if (quote === '"' && !/["\\$`]/.test(command[i + 1])) return undefined;
+			i++;
+			continue;
+		}
+		if (char === "$" || char === "`") return undefined;
+		if (quote === '"') {
+			if (char === '"') quote = undefined;
+			continue;
+		}
+		if (char === "'" || char === '"') {
+			quote = char;
+			continue;
+		}
+		if (/[<>(){}*?\[\]~#!]/.test(char)) return undefined;
+		if (char === "&" || char === "|" || char === ";") {
+			const part = command.slice(start, i).replace(/^[ \t]+|[ \t]+$/g, "");
+			if (!part) return undefined;
+			parts.push(part);
+			if (char === "&" && command[i + 1] !== "&") return undefined;
+			if (command[i + 1] === char && char !== ";") i++;
+			start = i + 1;
+		}
+	}
+	if (quote) return undefined;
+	const last = command.slice(start).replace(/^[ \t]+|[ \t]+$/g, "");
+	if (!last) return undefined;
+	parts.push(last);
+	return parts;
 }
 
 function isReadOnlyGit(tokens: string[]): boolean {
 	const sub = tokens[1] ?? "";
-	return [
-		"status",
-		"diff",
-		"log",
-		"show",
-		"branch",
-		"rev-parse",
-		"remote",
-	].includes(sub);
+	const args = tokens.slice(2);
+	if (sub === "branch") {
+		return args.every((arg) =>
+			["--list", "--all", "-a", "--remotes", "-r", "-v", "-vv", "--show-current"].includes(arg),
+		) || (
+			args[0] === "--list" &&
+			args.slice(1).every((arg) => !arg.startsWith("-"))
+		);
+	}
+	if (sub === "remote") {
+		return args.length === 0 || (args.length === 1 && args[0] === "-v");
+	}
+	if (
+		args.some((arg) => {
+			const option = arg.split("=", 1)[0];
+			return option.startsWith("--") && option.length > 2 &&
+				["--output", "--ext-diff", "--textconv"].some((unsafe) => unsafe.startsWith(option));
+		})
+	) return false;
+	return ["status", "diff", "log", "show", "rev-parse"].includes(sub);
 }
 
 export function isReadOnlyBash(command: string): boolean {
-	if (/[<>]/.test(command) || /(^|\s)tee(\s|$)/.test(command)) return false;
+	const parts = splitCompoundCommand(command);
+	if (!parts) return false;
 
-	return splitCompoundCommand(command).every((part) => {
-		const tokens = stripEnvAndWrappers(shellSplit(part));
+	return parts.every((part) => {
+		const tokens = stripWrappers(shellSplit(part));
 		const program = tokens[0] ?? "";
-		if (!program) return true;
+		if (!program) return false;
 		if (program === "git") return isReadOnlyGit(tokens);
 		if (
 			program === "find" &&
-			tokens.some((token) => token === "-exec" || token === "-delete")
+			tokens.some((token) => /^-(?:exec|execdir|ok|okdir|delete|fprint|fprint0|fprintf|fls)$/.test(token))
 		) {
 			return false;
 		}
+		if (
+			program === "rg" &&
+			tokens.some((token) => /^--(?:pre|hostname-bin)(?:=|$)/.test(token))
+		) return false;
 		return READ_ONLY_COMMANDS.has(program);
 	});
 }
+
+const filesystemFlags: Record<string, readonly string[]> = {
+	mkdir: ["-p", "--parents", "-v", "--verbose"],
+	touch: ["-a", "-m", "-c", "--no-create"],
+	rm: ["-f", "--force", "-v", "--verbose"],
+	rmdir: ["-v", "--verbose"],
+	mv: ["-n", "--no-clobber", "-v", "--verbose"],
+	cp: ["-n", "--no-clobber", "-v", "--verbose"],
+};
 
 export function isCommonFilesystemCommandInScope(
 	command: string,
@@ -123,26 +183,46 @@ export function isCommonFilesystemCommandInScope(
 	config: AutonomyConfig,
 ): boolean {
 	const parts = splitCompoundCommand(command);
-	if (parts.length === 0) return false;
+	if (!parts) return false;
 
 	return parts.every((part) => {
-		const tokens = stripEnvAndWrappers(shellSplit(part));
+		const tokens = stripWrappers(shellSplit(part));
 		const program = tokens[0] ?? "";
 		if (!["mkdir", "touch", "rm", "rmdir", "mv", "cp"].includes(program)) {
 			return false;
 		}
-		if (
-			program === "rm" &&
-			tokens.some((token) => /^-[^-]*r.*f|^-[^-]*f.*r/.test(token))
-		) {
-			return false;
+		// Moving a relative symlink can change a later command's target.
+		if (program === "mv" && parts.length > 1) return false;
+		const paths: string[] = [];
+		let optionsEnded = false;
+		for (const token of tokens.slice(1)) {
+			if (!optionsEnded && token === "--") {
+				optionsEnded = true;
+				continue;
+			}
+			if (!optionsEnded && token.startsWith("-")) {
+				if (!filesystemFlags[program].includes(token)) return false;
+			} else {
+				paths.push(token);
+			}
 		}
-
-		const paths = tokens.slice(1).filter((token) => !token.startsWith("-"));
 		if (paths.length === 0) return false;
 
-		return paths.every((path) => {
-			const absPath = resolveToolPath(cwd, path);
+		const scopePaths = [...paths];
+		if (program === "cp" && paths.length >= 2) {
+			const destination = resolve(cwd, paths[paths.length - 1]);
+			try {
+				if (statSync(destination, { throwIfNoEntry: false })?.isDirectory()) {
+					scopePaths.push(...paths.slice(0, -1).map((source) => join(destination, basename(source))));
+				}
+			} catch {
+				return false;
+			}
+		}
+
+		return scopePaths.every((path) => {
+			if (path.split("/").includes("..")) return false;
+			const absPath = resolve(cwd, path);
 			return (
 				isPathInAllowedRoots(cwd, config, absPath) &&
 				!protectedPathReason(absPath, cwd)

@@ -7,7 +7,6 @@ import {
 	projectConfigPath,
 	readEffectiveConfig,
 } from "../src/config.ts";
-import { isProjectTrustedContext } from "../src/trust.ts";
 
 const iterations = Number(process.argv[2] ?? 2000);
 
@@ -60,10 +59,9 @@ try {
 	);
 	await writeFile(join(cwd, "AGENTS.md"), "# bench fixture\n", "utf8");
 
-	const ctx = { cwd } as { cwd: string };
 	const hotPath = () =>
-		readEffectiveConfig(ctx.cwd, {
-			projectTrusted: isProjectTrustedContext(ctx),
+		readEffectiveConfig(cwd, {
+			projectTrusted: true,
 		});
 
 	const coldStart = performance.now();

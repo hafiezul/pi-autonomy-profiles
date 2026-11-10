@@ -11,6 +11,7 @@ import {
 	isReadOnlyBash,
 } from "./bash.ts";
 import {
+	canonicalPath,
 	commandInput,
 	expandHome,
 	isPathInAllowedRoots,
@@ -49,7 +50,14 @@ function ruleToolMatches(ruleTool: string, eventTool: string): boolean {
 
 function pathCandidates(rawPath: string, cwd: string): string[] {
 	const abs = resolveToolPath(cwd, rawPath);
-	return [rawPath, relative(cwd, abs), abs].map((value) =>
+	const candidates = [rawPath, relative(cwd, abs), abs];
+	try {
+		const target = canonicalPath(abs);
+		candidates.push(target, relative(canonicalPath(cwd), target));
+	} catch {
+		// Protected-write and scope checks handle unresolvable targets.
+	}
+	return candidates.map((value) =>
 		value.replace(/\\/g, "/"),
 	);
 }

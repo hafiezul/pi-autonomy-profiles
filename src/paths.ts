@@ -1,6 +1,8 @@
+import { lstatSync, readlinkSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import {
 	basename,
+	dirname,
 	isAbsolute,
 	join,
 	normalize,
@@ -8,6 +10,7 @@ import {
 	resolve,
 	sep,
 } from "node:path";
+import { fileURLToPath } from "node:url";
 import { CONFIG_DIR_NAME } from "./constants.ts";
 import { toRecord } from "./config.ts";
 import type { AutonomyConfig } from "./types.ts";
@@ -16,7 +19,7 @@ export function isWithin(basePath: string, targetPath: string): boolean {
 	const base = resolve(basePath);
 	const target = resolve(targetPath);
 	const rel = relative(base, target);
-	return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+	return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
 export function expandHome(input: string): string {
@@ -46,8 +49,37 @@ export function commandInput(input: unknown): string | undefined {
 }
 
 export function resolveToolPath(cwd: string, rawPath: string): string {
-	const normalized = rawPath.startsWith("@") ? rawPath.slice(1) : rawPath;
+	let normalized = rawPath.replace(/[\u00a0\u2000-\u200a\u202f\u205f\u3000]/g, " ");
+	if (normalized.startsWith("@")) normalized = normalized.slice(1);
+	if (normalized.startsWith("file://")) normalized = fileURLToPath(normalized);
 	return resolve(cwd, expandHome(normalized));
+}
+
+// Resolve existing ancestors too, so new files and dangling links cannot escape scope.
+export function canonicalPath(path: string, seen = new Set<string>()): string {
+	try {
+		return realpathSync(path);
+	} catch (error) {
+		if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+			throw error;
+		}
+	}
+	let isLink = false;
+	try {
+		isLink = lstatSync(path).isSymbolicLink();
+	} catch (error) {
+		if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+			throw error;
+		}
+	}
+	if (isLink) {
+		if (seen.has(path)) throw new Error(`Symlink cycle at ${path}`);
+		seen.add(path);
+		return canonicalPath(resolve(dirname(path), readlinkSync(path)), seen);
+	}
+	const parent = dirname(path);
+	if (parent === path) throw new Error(`Cannot resolve path ${path}`);
+	return join(canonicalPath(parent, seen), basename(path));
 }
 
 const protectedDirectories = new Set([
@@ -121,6 +153,15 @@ export function protectedPathReason(
 	absPath: string,
 	cwd: string,
 ): string | undefined {
+	try {
+		return lexicalProtectedPathReason(absPath, cwd) ??
+			lexicalProtectedPathReason(canonicalPath(absPath), canonicalPath(cwd));
+	} catch {
+		return "a path whose filesystem target could not be resolved";
+	}
+}
+
+function lexicalProtectedPathReason(absPath: string, cwd: string): string | undefined {
 	const rel = relative(resolve(cwd), absPath);
 	const inspectPath = rel && !rel.startsWith("..") ? rel : absPath;
 	const segments = pathSegments(inspectPath);
@@ -147,7 +188,12 @@ export function isPathInAllowedRoots(
 	config: AutonomyConfig,
 	absPath: string,
 ): boolean {
-	return allowedRoots(cwd, config).some((root) => isWithin(root, absPath));
+	try {
+		const target = canonicalPath(absPath);
+		return allowedRoots(cwd, config).some((root) => isWithin(canonicalPath(root), target));
+	} catch {
+		return false;
+	}
 }
 
 const GLOB_REGEX_CACHE_MAX = 1024;

@@ -4,6 +4,8 @@ Standalone Auto Mode and manual approval guardrails for Pi, inspired by Claude C
 
 This package is distributed as a [Pi package](https://pi.dev/packages). It ships the TypeScript extension entrypoint directly; Pi loads package extensions with its TypeScript runtime, so there is no build output to publish.
 
+Requires Node.js 22.19.0 or later and Pi 0.79.1 or later. Project policy follows Pi's effective trust decision through `ctx.isProjectTrusted()`, including temporary decisions for the current session.
+
 ## Install from npm
 
 ```bash
@@ -78,7 +80,15 @@ Permission rule syntax is intentionally Claude-like:
 
 Rule precedence is non-overridable built-in blockers first, then deny, ask, out-of-scope write checks, allow, and finally mode defaults. Built-in protected-write and Auto Mode guardrails still block even if an allow rule is present.
 
+Write scope checks follow symlinks, including existing parent directories when a target file does not exist yet. Protected-path checks and path rules also inspect the resolved target, so an alias cannot bypass a restriction on `.git` or another protected path.
+
+In manual and advanced approval modes, automatic Bash approval covers only recognized static commands. Shell substitutions, environment assignments, redirections, multiline scripts, and unsupported options require approval or are denied in `dontAsk` mode. Mutating forms such as `git branch new-name`, `git remote add`, `git diff --output`, `find -execdir`, and `rg --pre` are not classified as read-only. `acceptEdits` also checks filesystem options and operands before approving a command.
+
+These checks are not a shell sandbox. Auto Mode still runs commands that pass its deterministic guardrails, and filesystem changes between a permission check and tool execution can affect the result.
+
 The command UI intentionally focuses on `auto` and `manual`. Advanced config-only modes remain supported for existing configs and power users: `acceptEdits`, `plan`, and `dontAsk`.
+
+Switching modes preserves existing config fields. A malformed JSONC config must be repaired before a mode change can save it. Mode changes rewrite the file as formatted JSON, so comments are not retained.
 
 ## Local development
 
@@ -93,9 +103,9 @@ pi install /path/to/pi-autonomy-profiles
 
 `prepack` runs type checking and tests before every `npm pack`, so broken state cannot be packaged.
 
-CI (`.github/workflows/ci.yml`) runs `npm run check` and `npm test` on every push to main and every pull request, on Node 22 and Node 24.
+CI (`.github/workflows/ci.yml`) runs type checking and tests on Node 22.19.0 and Node 24, against both the minimum supported Pi version and the pinned development version. Tests include loading the extension through Pi's TypeScript loader. CI also audits the pinned dependencies and fails on moderate or higher advisories.
 
-Publishing (`.github/workflows/release.yml`) runs the same checks and then publishes to npm with provenance when a `v*` tag is pushed:
+Publishing (`.github/workflows/release.yml`) runs the dependency audit, type checking, and tests, then publishes to npm with provenance when a `v*` tag is pushed:
 
 ```bash
 npm version patch

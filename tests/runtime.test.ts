@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import autoMode from "../index.ts";
+import { projectConfigPath } from "../src/config.ts";
 import type { Decision, PermissionMode } from "../src/types.ts";
 import {
 	clearSessionApprovals,
@@ -221,12 +222,49 @@ async function toolCallHandler(
 let previousGlobalAgentDir: string | undefined;
 const EXTENSION_ID = "pi-autonomy-profiles";
 
+test("tool calls follow the host's live trust decision for project policy", async () => {
+	const tmp = await mkdtemp(join(tmpdir(), "pi-autonomy-host-trust-"));
+	const cwd = join(tmp, "repo");
+	try {
+		const handler = await toolCallHandler({ cwd: tmp, mode: "auto" });
+		const path = projectConfigPath(cwd);
+		await mkdir(dirname(path), { recursive: true });
+		await writeFile(path, JSON.stringify({ permissions: { deny: ["Bash(*)"] } }));
+		let trusted = false;
+		const ctx = {
+			cwd,
+			hasUI: false,
+			isProjectTrusted: () => trusted,
+		} as ExtensionContext;
+		const event = { toolName: "bash", input: { command: "echo hello" } };
+		assert.equal(await handler(event, ctx), undefined);
+		trusted = true;
+		assert.deepEqual(await handler(event, ctx), {
+			block: true,
+			reason: "Denied by rule: Bash(*)",
+		});
+		trusted = false;
+		assert.equal(await handler(event, ctx), undefined);
+	} finally {
+		if (previousGlobalAgentDir === undefined) {
+			delete process.env.PI_CODING_AGENT_DIR;
+		} else {
+			process.env.PI_CODING_AGENT_DIR = previousGlobalAgentDir;
+		}
+		await rm(tmp, { recursive: true, force: true });
+	}
+});
+
 test("autoMode tool_call wiring allows read-only, blocks guardrails, and pauses after three denials", async () => {
 	const tmp = await mkdtemp(join(tmpdir(), "pi-autonomy-wiring-"));
 	await mkdir(join(tmp, "repo"), { recursive: true });
 	try {
 		const handler = await toolCallHandler({ cwd: tmp, mode: "auto" });
-		const ctx = { cwd: join(tmp, "repo"), hasUI: false } as ExtensionContext;
+		const ctx = {
+			cwd: join(tmp, "repo"),
+			hasUI: false,
+			isProjectTrusted: () => false,
+		} as ExtensionContext;
 
 		assert.deepEqual(await handler({ toolName: "bash", input: { command: "ls" } }, ctx), undefined);
 		const guardrail = { toolName: "bash", input: { command: "rm -rf build" } };

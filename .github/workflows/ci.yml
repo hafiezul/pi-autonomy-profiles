@@ -9,7 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [22, 24]
+        node-version: [22.19.0, 24]
+        pi-version: [minimum, current]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -17,5 +18,9 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
       - run: npm ci
+      - run: npm audit --audit-level=moderate
+        if: matrix.pi-version == 'current'
+      - run: npm install --no-save --package-lock=false @earendil-works/pi-coding-agent@0.79.1
+        if: matrix.pi-version == 'minimum'
       - run: npm run check
       - run: npm test

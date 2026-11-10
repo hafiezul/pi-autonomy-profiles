@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, unlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, unlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -7,7 +7,9 @@ import {
 	globalConfigPath,
 	projectConfigPath,
 	readEffectiveConfig,
+	writeGlobalMode,
 } from "../src/config.ts";
+import { SCHEMA } from "../src/constants.ts";
 
 async function writeJson(path: string, value: unknown): Promise<void> {
 	await mkdir(dirname(path), { recursive: true });
@@ -44,6 +46,70 @@ test("cached reads reflect global config changes", async () => {
 		await writeJson(globalConfigPath(), { mode: "dontAsk" });
 		const second = readEffectiveConfig(cwd, { projectTrusted: false });
 		assert.equal(second.config.mode, "dontAsk");
+	});
+});
+
+test("mode changes preserve raw configuration fields", async () => {
+	await withWorkspace(async () => {
+		const original = {
+			mode: "default",
+			permissions: { deny: ["Bash(*)"], futureOption: true },
+			futureSection: { enabled: true },
+		};
+		await writeJson(globalConfigPath(), original);
+		await writeGlobalMode("auto");
+		assert.deepEqual(JSON.parse(await readFile(globalConfigPath(), "utf8")), {
+			...original,
+			$schema: SCHEMA,
+			mode: "auto",
+		});
+	});
+});
+
+test("mode changes refuse to overwrite malformed configuration", async () => {
+	await withWorkspace(async () => {
+		for (const raw of ['{"permissions":', '{"mode":"plan"} /* unfinished']) {
+			await mkdir(dirname(globalConfigPath()), { recursive: true });
+			await writeFile(globalConfigPath(), raw);
+			await assert.rejects(writeGlobalMode("auto"));
+			assert.equal(await readFile(globalConfigPath(), "utf8"), raw);
+		}
+	});
+});
+
+test("mode changes accept JSONC without changing strings or permission rules", async () => {
+	await withWorkspace(async () => {
+		await mkdir(dirname(globalConfigPath()), { recursive: true });
+		await writeFile(globalConfigPath(), `{
+			// Keep these rules when switching modes.
+			"mode": "default",
+			"permissions": { /* deny uploads */ "deny": ["Bash(curl https://example.com/*)"] }
+		}`);
+		await writeGlobalMode("auto");
+		assert.deepEqual(JSON.parse(await readFile(globalConfigPath(), "utf8")), {
+			$schema: SCHEMA,
+			mode: "auto",
+			permissions: { deny: ["Bash(curl https://example.com/*)"] },
+		});
+	});
+});
+
+test("cache entries belong to the selected global config path", async () => {
+	await withWorkspace(async ({ root, cwd }) => {
+		const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
+		const firstPath = globalConfigPath();
+		await writeJson(firstPath, { mode: "plan" });
+		const fixedTime = new Date("2026-01-01T00:00:00Z");
+		await utimes(firstPath, fixedTime, fixedTime);
+		assert.equal(readEffectiveConfig(cwd, { projectTrusted: false }).config.mode, "plan");
+		try {
+			process.env.PI_CODING_AGENT_DIR = join(root, "other-agent");
+			await writeJson(globalConfigPath(), { mode: "auto" });
+			await utimes(globalConfigPath(), fixedTime, fixedTime);
+			assert.equal(readEffectiveConfig(cwd, { projectTrusted: false }).config.mode, "auto");
+		} finally {
+			process.env.PI_CODING_AGENT_DIR = originalAgentDir;
+		}
 	});
 });
 

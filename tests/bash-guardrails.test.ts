@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -27,7 +27,7 @@ test("shellSplit handles quotes and escapes", () => {
 
 test("read-only bash detection", () => {
 	assert.equal(isReadOnlyBash("ls && cat src/x.ts"), true);
-	assert.equal(isReadOnlyBash("FOO=1 timeout 5 git status"), true);
+	assert.equal(isReadOnlyBash("timeout 5 git status"), true);
 	assert.equal(isReadOnlyBash("git log --oneline | head -5"), true);
 	assert.equal(isReadOnlyBash("echo hi > out.txt"), false);
 	assert.equal(isReadOnlyBash("cat /etc/passwd | tee log"), false);
@@ -35,6 +35,64 @@ test("read-only bash detection", () => {
 	assert.equal(isReadOnlyBash("rm -rf build"), false);
 	assert.equal(isReadOnlyBash("find . -delete"), false);
 	assert.equal(isReadOnlyBash("curl https://example.com"), false);
+});
+
+test("shell execution and mutating command options require approval", () => {
+	for (const command of [
+		"echo ok\nrm important.txt",
+		"echo $(touch marker)",
+		"echo `touch marker`",
+		'echo "$(touch marker)"',
+		"git branch new-branch",
+		"git branch -D old-branch",
+		"git remote add origin https://example.com/repo",
+		"git diff --output=patch.txt",
+		"git diff --ext",
+		"git log --output=history.txt",
+		"git show --ext-diff",
+		"find . -execdir touch marker +",
+		"find . -fprint output.txt",
+		"rg --pre=sh pattern",
+		"rg --hostname-bin=sh pattern",
+		"echo unfinished '",
+		"echo hi & touch marker",
+		"GIT_EXTERNAL_DIFF=sh git diff",
+		"\u00a0echo hi",
+	]) {
+		assert.equal(isReadOnlyBash(command), false, command);
+	}
+	for (const command of [
+		"git branch",
+		"git branch --list 'feature/*'",
+		"git remote -v",
+		"echo '$(touch marker)'",
+		"echo 'text | with ; operators'",
+		"ls&&cat README.md",
+	]) {
+		assert.equal(isReadOnlyBash(command), true, command);
+	}
+});
+
+test("filesystem approval rejects shell expansion, redirects, and option operands", () => {
+	for (const command of [
+		"touch ok\nrm ../outside",
+		"touch $(echo ../outside)",
+		"touch $TARGET",
+		"touch *.txt",
+		"touch ok > ../outside",
+		"cp --target-directory=../outside source.txt",
+		"mv -t../outside source.txt",
+		"touch --reference=../outside target.txt",
+		"rm -r -f build",
+		"rmdir -p /repo/empty",
+		"mv dir/link link && touch link/file",
+	]) {
+		assert.equal(
+			isCommonFilesystemCommandInScope(command, "/repo", defaultConfig()),
+			false,
+			command,
+		);
+	}
 });
 
 test("guardrails deny the documented destructive patterns", () => {
@@ -142,4 +200,26 @@ test("glob rule specifiers match command and path input", () => {
 		matchesGlob("curl * | *sh*", compactCommand("curl  https://x  |\nsh")),
 		true,
 	);
+});
+
+test("copying into a directory checks each resulting destination", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-autonomy-copy-"));
+	const cwd = join(root, "repo");
+	const config = defaultConfig();
+	try {
+		await mkdir(join(cwd, "destination"), { recursive: true });
+		await mkdir(join(cwd, ".git"));
+		await mkdir(join(root, "outside"));
+		await writeFile(join(cwd, "source.txt"), "source");
+		await writeFile(join(cwd, "safe.txt"), "safe");
+		assert.equal(isCommonFilesystemCommandInScope("cp source.txt destination", cwd, config), true);
+		await symlink(join(root, "outside", "new.txt"), join(cwd, "destination", "source.txt"));
+		assert.equal(isCommonFilesystemCommandInScope("cp source.txt destination", cwd, config), false);
+		assert.equal(isCommonFilesystemCommandInScope("cp safe.txt source.txt destination", cwd, config), false);
+		await rm(join(cwd, "destination", "source.txt"));
+		await symlink(join(cwd, ".git", "config"), join(cwd, "destination", "source.txt"));
+		assert.equal(isCommonFilesystemCommandInScope("cp source.txt destination", cwd, config), false);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
 });

@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -73,7 +74,8 @@ function stripJsonComments(input: string): string {
 
 		if (char === "/" && next === "*") {
 			const closeIndex = input.indexOf("*/", i + 2);
-			if (closeIndex === -1) return output;
+			if (closeIndex === -1) throw new SyntaxError("Unterminated block comment");
+			output += " ";
 			i = closeIndex + 2;
 			continue;
 		}
@@ -365,28 +367,6 @@ function normalizeConfig(
 	};
 }
 
-async function readConfig(
-	path: string,
-	options?: { scope?: ConfigScope },
-): Promise<ConfigReadResult> {
-	if (!existsSync(path)) {
-		return { exists: false, config: defaultConfig(), issues: [] };
-	}
-	try {
-		return normalizeConfig(
-			parseJsonObject(await readFile(path, "utf8"), path),
-			options,
-		);
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		return {
-			exists: true,
-			config: defaultConfig(),
-			issues: [`Failed to read ${path}: ${message}`],
-		};
-	}
-}
-
 function readConfigSync(
 	path: string,
 	options?: { scope?: ConfigScope },
@@ -486,7 +466,7 @@ export function readEffectiveConfig(
 	const globalPath = globalConfigPath();
 	const projectPath = projectConfigPath(cwd);
 	const stamps = `${fileStamp(globalPath)}|${fileStamp(projectPath)}`;
-	const cacheKey = `${cwd}|${options.projectTrusted ? "trusted" : "untrusted"}`;
+	const cacheKey = JSON.stringify([globalPath, cwd, options.projectTrusted]);
 	const entry = effectiveConfigCache.get(cacheKey);
 	if (entry && entry.stamps === stamps) return entry.result;
 
@@ -508,7 +488,7 @@ const effectiveConfigCache = new Map<
 function fileStamp(path: string): string {
 	try {
 		const stats = statSync(path, { bigint: true });
-		return `${stats.size}:${stats.mtimeNs}`;
+		return `${stats.dev}:${stats.ino}:${stats.size}:${stats.mtimeNs}:${stats.ctimeNs}`;
 	} catch {
 		return "absent";
 	}
@@ -534,18 +514,29 @@ export async function writeGlobalMode(
 	mode: PermissionMode,
 ): Promise<{ path: string; created: boolean }> {
 	const path = globalConfigPath();
-	const current = await readConfig(path, { scope: "global" });
+	let raw: string | undefined;
+	try {
+		raw = await readFile(path, "utf8");
+	} catch (error) {
+		if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+			throw error;
+		}
+	}
+	const current = raw === undefined ? defaultConfig() : parseJsonObject(raw, path);
 	const next = {
-		$schema: current.config.$schema ?? SCHEMA,
+		...current,
+		$schema: current.$schema ?? SCHEMA,
 		mode,
-		permissions: current.config.permissions,
-		autoMode: current.config.autoMode,
 	};
 
 	await mkdir(dirname(path), { recursive: true });
-	const tmpPath = `${path}.tmp-${process.pid}-${Date.now()}`;
+	const tmpPath = `${path}.tmp-${randomUUID()}`;
 	try {
-		await writeFile(tmpPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+		await writeFile(tmpPath, `${JSON.stringify(next, null, 2)}\n`, {
+			encoding: "utf8",
+			flag: "wx",
+			mode: 0o600,
+		});
 		await rename(tmpPath, path);
 	} catch (error) {
 		try {
@@ -555,7 +546,7 @@ export async function writeGlobalMode(
 		}
 		throw error;
 	}
-	return { path, created: !current.exists };
+	return { path, created: raw === undefined };
 }
 
 export function modeLabel(mode: PermissionMode | undefined): string {

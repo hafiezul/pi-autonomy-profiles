@@ -12,7 +12,6 @@ import {
 	promptForDecision,
 	recordDecision,
 } from "./src/runtime.ts";
-import { isProjectTrustedContext } from "./src/trust.ts";
 
 export default function autoMode(pi: ExtensionAPI) {
 	registerCommand(pi, "autonomy");
@@ -23,7 +22,7 @@ export default function autoMode(pi: ExtensionAPI) {
 
 	pi.on("tool_call", async (event: ToolCallEvent, ctx: ExtensionContext) => {
 		const { config } = readEffectiveConfig(ctx.cwd, {
-			projectTrusted: isProjectTrustedContext(ctx),
+			projectTrusted: ctx.isProjectTrusted(),
 		});
 		const mode = effectiveRuntimeMode(config.mode ?? "default");
 		const decision = evaluateToolCall(event, ctx, config, mode);
